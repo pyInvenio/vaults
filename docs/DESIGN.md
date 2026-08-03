@@ -10,7 +10,9 @@ Morpho GraphQL API
 
 exact-ID reviewed universe ─> hard gates ─> post-impact market curves
                                              └─> constrained marginal allocator
-                                                  └─> historical strategy targets
+                                                  └─> target allocation
+current positions + live state ─> rebalance planner ─> proposed moves
+                                          └─> historical strategy
 ```
 
 `curator/api.py` uses the current GraphQL schema and converts the WAD-scaled
@@ -108,14 +110,21 @@ market liquidity; a kill switch cannot force borrower repayment.
 
 Production safety observation is block/minute based; market targets are
 recomputed hourly and after material events. Recalculation alone does not send
-a transaction. The strategy ignores target drift inside 3 percentage points,
-requires a $1M move and 15 bp modeled annual yield improvement, and caps routine
-turnover at 10% of NAV in a rolling seven-day window. Those execution
-thresholds are policy guardrails rather than claimed alpha parameters. A
-liquidity-driven decrease in the allocator's admissible deployed total bypasses
-the drift and positive-yield gates, because de-risking to lower-yielding idle
-must not be rejected as an uneconomic trade; execution remains bounded by
-actual market cash.
+a transaction. `curator/rebalance.py` first reconstructs external supply by
+subtracting the vault's current position from indexed market supply. It then
+reuses the allocator to produce a target and emits liquidity-bounded
+instructions.
+
+Disabled, ineligible, near-maturity, or hard-constraint reductions bypass
+economic gates. Routine moves require 1 percentage point of target drift, a
+$1M leg, and at least 15 bp of modeled annual improvement. Modeled improvement
+over the 14-day horizon must also cover a placeholder $60 per withdrawal or
+supply leg. Rolling seven-day turnover is capped at 10% of NAV and counts both
+legs, so moving $5M between markets consumes $10M. These are policy assumptions,
+not fitted alpha or live execution quotes. A production executor would replace
+the fixed gas input with a transaction estimate and include adapter hops,
+reverts, and time out of market. Initial construction follows the full feasible
+target and is not treated as a rotation under the rolling limit.
 
 ## Verification
 

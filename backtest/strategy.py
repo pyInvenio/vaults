@@ -5,9 +5,9 @@ from __future__ import annotations
 import copy
 
 from curator import irm
-from curator.allocator import AllocationPolicy, allocate
+from curator.allocator import AllocationPolicy
 from curator.models import VaultConfig
-from curator.rates import MarketCurve
+from curator.rebalance import plan_rebalance
 from curator.strategy import Strategy
 
 
@@ -60,8 +60,8 @@ class ConstrainedYieldStrategy(Strategy):
         for sm in world.values():
             market = copy.deepcopy(sm.market)
             state = market.state
-            state.supply_assets = sm.supply_ext
-            state.borrow_assets = min(sm.borrow, sm.supply_ext * 0.999)
+            state.supply_assets = sm.supply_ext + sm.our_position
+            state.borrow_assets = min(sm.borrow, state.supply_assets * 0.999)
             state.rate_at_target = sm.rate_at_target
             state.utilization = state.borrow_assets / max(state.supply_assets, 1.0)
             state.supply_apy = irm.apr_to_apy(
@@ -71,53 +71,34 @@ class ConstrainedYieldStrategy(Strategy):
                 irm.borrow_rate(sm.rate_at_target, state.utilization)
             )
             markets.append(market)
-        result = allocate(
-            markets,
-            cfg,
-            self.budget,
-            chunk=cfg.total_usd / 400.0,
-        )
-        desired = {k: result.amounts.get(k, 0.0) for k in world}
         current = {k: max(sm.our_position, 0.0) for k, sm in world.items()}
         current_deployed = sum(current.values())
-        desired_deployed = sum(desired.values())
+        turnover_used = (
+            cfg.max_weekly_turnover * cfg.total_usd - self._available_turnover(day, cfg)
+        )
+        plan = plan_rebalance(
+            markets,
+            current,
+            cfg,
+            self.budget,
+            turnover_7d_usd=turnover_used,
+        )
 
         if current_deployed <= cfg.min_move_usd:
-            self._target = desired
+            self._target = {key: plan.target.amounts.get(key, 0.0) for key in world}
             return self._target
 
-        deltas = {k: desired[k] - current[k] for k in world}
-        defensive_rebalance = desired_deployed < current_deployed - cfg.min_move_usd
-        largest_drift = max(
-            (abs(delta) / cfg.total_usd for delta in deltas.values()),
-            default=0.0,
-        )
-        if not defensive_rebalance and largest_drift <= cfg.drift_band_abs:
-            self._target = current
-            return self._target
-
-        curves = {market.unique_key: MarketCurve(market, cfg) for market in markets}
-        current_value = sum(curves[key].revenue(current[key]) for key in world)
-        desired_value = sum(curves[key].revenue(desired[key]) for key in world)
-        desired_turnover = sum(abs(delta) for delta in deltas.values())
-        gain_on_moved_notional = (desired_value - current_value) / max(
-            desired_turnover, 1.0
-        )
-        if (
-            not defensive_rebalance
-            and gain_on_moved_notional < cfg.min_gain_bps / 10_000.0
-        ):
-            self._target = current
-            return self._target
-
-        routine_budget = self._available_turnover(day, cfg)
-        scale = min(1.0, routine_budget / max(desired_turnover, 1.0))
-        charged_turnover = scale * desired_turnover
+        staged = dict(current)
+        charged_turnover = 0.0
+        for move in plan.moves:
+            if move.source:
+                staged[move.source] -= move.amount_usd
+            if move.destination:
+                staged[move.destination] += move.amount_usd
+            charged_turnover += move.turnover_usd
         if charged_turnover > 0:
             self._routine_turnover.append((day, charged_turnover))
-        self._target = {
-            key: max(0.0, current[key] + scale * deltas[key]) for key in world
-        }
+        self._target = staged
         return self._target
 
 

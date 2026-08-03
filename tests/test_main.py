@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import json
+
 import main
 
 
@@ -36,3 +38,22 @@ def test_observation_time_uses_newest_market_timestamp():
     ]
 
     assert main.observation_time(markets) == "2023-11-14T22:15:23Z"
+
+
+def test_load_position_state_accepts_rebalance_metadata(tmp_path):
+    path = tmp_path / "positions.json"
+    path.write_text(
+        json.dumps(
+            {
+                "positions": {"market-a": 12_000_000},
+                "turnover_7d_usd": 2_000_000,
+                "disabled_market_ids": ["market-b"],
+            }
+        )
+    )
+
+    positions, turnover, disabled = main.load_position_state(path)
+
+    assert positions == {"market-a": 12_000_000.0}
+    assert turnover == 2_000_000.0
+    assert disabled == {"market-b"}

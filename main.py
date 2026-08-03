@@ -4,15 +4,15 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
 from curator import api, discovery, sensitivity, universe
 from curator.allocator import AllocationPolicy, allocate
-from curator.mandate import scan_filters, selection_filters
+from curator.mandate import REVIEWED_MARKET_IDS, scan_filters, selection_filters
 from curator.models import Market, VaultConfig
-from curator.rates import portfolio_apr
+from curator.rebalance import IDLE, plan_rebalance
 
 DEFAULT_SNAPSHOT = Path(__file__).parent / "data" / "snapshot_2026-08-01.json"
 
@@ -163,17 +163,11 @@ def print_allocation(
             f"{d['post_utilization']:>8.1%}" + ("  [capped]" if d["capped"] else "")
         )
     funded = sum(amount > 0 for amount in result.amounts.values())
-    stress_cfg = replace(cfg, horizon_days=90.0)
-    held_stress_apr = portfolio_apr(report.universe, result.amounts, stress_cfg)
     print(
         f"\n  Summary: {funded} funded | ${diags['_idle_usd'] / 1e6:.1f}M idle | "
         f"${diags['_stressed_liquidity_usd'] / 1e6:.1f}M stressed-withdrawable"
     )
-    print(
-        f"  APR: {result.projected_apr:.2%} projected over "
-        f"{cfg.horizon_days:g}d | "
-        f"{held_stress_apr:.2%} in the 90d zero-borrow-growth stress"
-    )
+    print(f"  APR: {result.projected_apr:.2%} projected over {cfg.horizon_days:g}d")
     if result.diagnostics["_reward_projected_apr"] > 0:
         print(
             f"  attribution: {result.diagnostics['_native_projected_apr']:.2%} native "
@@ -201,6 +195,88 @@ def cmd_allocate_snapshot(args: argparse.Namespace) -> None:
         show_shortlist=args.show_shortlist,
         previous_markets=previous,
     )
+
+
+def load_position_state(path: str | Path) -> tuple[dict[str, float], float, set[str]]:
+    """Load positions and optional rebalancing state from JSON."""
+
+    with Path(path).open() as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError("position file must contain a JSON object")
+    raw_positions = payload.get("positions", payload)
+    if not isinstance(raw_positions, dict):
+        raise ValueError("positions must be a market-ID-to-USD mapping")
+    positions = {str(key): float(value) for key, value in raw_positions.items()}
+    turnover = float(payload.get("turnover_7d_usd", 0.0))
+    disabled = {str(key) for key in payload.get("disabled_market_ids", [])}
+    return positions, turnover, disabled
+
+
+def cmd_rebalance(args: argparse.Namespace) -> None:
+    positions, recorded_turnover, disabled = load_position_state(args.positions)
+    disabled.update(args.disable_market)
+    turnover = (
+        args.turnover_7d_usd if args.turnover_7d_usd is not None else recorded_turnover
+    )
+    if args.snapshot:
+        markets = load_markets(args.snapshot)
+        source = f"offline snapshot: {args.snapshot}"
+    else:
+        markets = load_live_allocation_markets()
+        source = "live Morpho API"
+
+    cfg = VaultConfig()
+    policy = AllocationPolicy()
+    report = universe.select(markets, cfg, filters=selection_filters())
+    included = {market.unique_key for market in report.universe}
+    reviewed = [
+        market for market in markets if market.unique_key in REVIEWED_MARKET_IDS
+    ]
+    disabled.update(
+        market.unique_key for market in reviewed if market.unique_key not in included
+    )
+    plan = plan_rebalance(
+        reviewed,
+        positions,
+        cfg,
+        policy,
+        enabled_market_ids=included,
+        disabled_market_ids=disabled,
+        turnover_7d_usd=turnover,
+    )
+    labels = {market.unique_key: market.label for market in reviewed}
+
+    def label(key: str) -> str:
+        return "idle USDC" if key == IDLE else labels.get(key, f"{key[:10]}…")
+
+    print(f"data: {source} | observed: {observation_time(markets)}")
+    print("=" * 78)
+    print("REBALANCE PLAN  (instructions only; no transactions submitted)")
+    print("=" * 78)
+    print(
+        f"  current: ${sum(positions.values()) / 1e6:.1f}M deployed | "
+        f"target: ${sum(plan.target.amounts.values()) / 1e6:.1f}M deployed | "
+        f"target APR: {plan.target.projected_apr:.2%} | "
+        f"7d turnover used: ${turnover / 1e6:.1f}M"
+    )
+    if not plan.moves:
+        print(
+            "  no executable move passes the risk, drift, gain, liquidity, and turnover gates"
+        )
+    for move in plan.moves:
+        if move.forced:
+            tag = "FORCED"
+        elif move.reason == "initial deployment to target":
+            tag = "INITIAL"
+        else:
+            tag = "ROUTINE"
+        print(
+            f"  [{tag}] {label(move.source)} -> {label(move.destination)}: "
+            f"${move.amount_usd / 1e6:.2f}M | {move.reason}"
+        )
+    for alert in plan.alerts:
+        print(f"  [ALERT] {alert}")
 
 
 def cmd_sensitivity_snapshot(args: argparse.Namespace) -> None:
@@ -270,6 +346,27 @@ def main() -> None:
     snapshot_parser = sub.add_parser("allocate-snapshot")
     snapshot_parser.add_argument("--snapshot", default=str(DEFAULT_SNAPSHOT))
     add_allocation_args(snapshot_parser)
+    rebalance_parser = sub.add_parser("rebalance")
+    rebalance_parser.add_argument(
+        "--positions",
+        required=True,
+        help="JSON file containing current market-ID-to-USD positions",
+    )
+    rebalance_parser.add_argument(
+        "--snapshot",
+        help="use an offline market snapshot instead of fetching live state",
+    )
+    rebalance_parser.add_argument(
+        "--turnover-7d-usd",
+        type=float,
+        help="override trailing seven-day turnover recorded in the position file",
+    )
+    rebalance_parser.add_argument(
+        "--disable-market",
+        action="append",
+        default=[],
+        help="market ID with a risk signal; may be supplied more than once",
+    )
     sensitivity_parser = sub.add_parser("sensitivity-snapshot")
     sensitivity_parser.add_argument("--snapshot", default=str(DEFAULT_SNAPSHOT))
     args = p.parse_args()
@@ -277,6 +374,7 @@ def main() -> None:
         "fetch": cmd_fetch,
         "allocate": cmd_allocate,
         "allocate-snapshot": cmd_allocate_snapshot,
+        "rebalance": cmd_rebalance,
         "sensitivity-snapshot": cmd_sensitivity_snapshot,
     }[args.cmd](args)
 

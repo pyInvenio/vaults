@@ -6,7 +6,7 @@ the submission. The primary allocator lives in `curator/allocator.py`.
 ## Primary policy
 
 - $100M initial NAV;
-- ten exact approved market IDs from `curator/mandate.py`;
+- ten exact selected market IDs from `curator/mandate.py`;
 - 50% market cap, 67.5% BTC cap, 25% ETH/LST/LRT cap, 5% Sky and COMP caps;
 - 25% aggregate non-blue cap and 35% post-deposit ownership cap;
 - at least 50% pre-deposit exit coverage per funded market and 60% stressed
@@ -36,10 +36,10 @@ full $100M denominator and count idle at 0%.
 
 | window | constrained yield | static | spot chaser | avg deployed | events / repaid |
 |---|---:|---:|---:|---:|---:|
-| Oct 10–16 cascade | 3.00% | 2.93% | 1.95% | 86.5% | 27 / $7.69M |
-| Oct 10–Dec 25 | 2.57% | 2.44% | 1.76% | 87.8% | 128 / $41.61M |
-| Apr 21–May 20 | 2.00% | 2.09% | 1.04% | 78.3% | 7 / <$0.01M |
-| Jun 25–Jul 24 | 2.30% | 2.35% | 0.86% | 83.7% | 13 / $0.07M |
+| Oct 10–16 cascade | 2.76% | 2.93% | 1.95% | 76.7% | 27 / $7.69M |
+| Oct 10–Dec 25 | 2.27% | 2.44% | 1.76% | 74.3% | 128 / $41.61M |
+| Apr 21–May 20 | 2.05% | 2.09% | 1.04% | 80.9% | 7 / <$0.01M |
+| Jun 25–Jul 24 | 2.32% | 2.35% | 0.86% | 84.8% | 13 / $0.07M |
 
 The October cascade had zero reported bad debt. Two later events contain
 $0.029681 of aggregate bad-debt dust; the modeled vault books about $0.007 and
@@ -50,8 +50,8 @@ daily recomputation on daily source states;
 daily data cannot identify sub-daily target timing. Dedicated cadence CSVs
 report 1h through 7d on the available hourly tape.
 
-The October 10–December 25 price-taker counterfactual is 3.23% versus 2.54%
-post-impact on the matched seven-day attribution path. The 69 bp difference
+The October 10–December 25 price-taker counterfactual is 2.79% versus 2.27%
+post-impact on the matched hourly attribution path. The 52 bp difference
 quantifies the cost of supplying at $100M scale on that same allocation path.
 
 ## Commands
@@ -64,7 +64,7 @@ uv run python -m backtest.historical --start 2025-10-10 --days 77 \
   --resolution HOUR --cadences 0.0416666667,0.0833333333,0.25,0.5,1,7
 uv run python -m backtest.backtest_suite
 uv run python -m backtest.impact_attribution \
-  --start 2025-10-10 --days 77 --resolution HOUR --cadence 3
+  --start 2025-10-10 --days 77 --resolution HOUR --cadence 0.0416666667
 ```
 
 Synthetic scenarios and subjective risk-premium models are not used in the

@@ -760,7 +760,9 @@ def write_csv(results: Iterable[HistoricalResult], path: str | Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as handle:
         writer = csv.DictWriter(
-            handle, fieldnames=list(HistoricalResult.__dataclass_fields__)
+            handle,
+            fieldnames=list(HistoricalResult.__dataclass_fields__),
+            lineterminator="\n",
         )
         writer.writeheader()
         for row in rows:

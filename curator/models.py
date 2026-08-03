@@ -99,7 +99,7 @@ class VaultConfig:
     min_move_usd: float = 1_000_000.0
     min_gain_bps: float = 15.0
     gas_cost_per_move_usd: float = 60.0
-    drift_band_abs: float = 0.03
+    drift_band_abs: float = 0.01
     max_weekly_turnover: float = 0.10
 
     market_bad_debt_kill_usd: float = 100_000.0
