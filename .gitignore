@@ -2,9 +2,9 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
-codex/data/*.sqlite3
-codex/data/*.sqlite3-shm
-codex/data/*.sqlite3-wal
+backtest/data/*.sqlite3
+backtest/data/*.sqlite3-shm
+backtest/data/*.sqlite3-wal
 
 # Local research and interview material (not part of the submission repo).
 experimental/
@@ -19,7 +19,12 @@ tests/test_regime.py
 tests/test_review_findings.py
 
 # Keep only verified, cited result artifacts.
-codex/data/*.csv
-!codex/data/verified_*.csv
+backtest/data/*.csv
+!backtest/data/verified_current_allocation.csv
+!backtest/data/verified_event_and_normal_results.csv
+!backtest/data/verified_cadence_sweep_oct10_event_hourly.csv
+!backtest/data/verified_oct10_dec25_hourly.csv
+!backtest/data/verified_oct10_dec25_impact.csv
+!backtest/data/verified_jun25_impact.csv
 
 research/**/data/
