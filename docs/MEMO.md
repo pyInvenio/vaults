@@ -2,85 +2,82 @@
 
 ## Executive summary
 
-I propose ten exact Morpho markets spanning BTC, ETH/LST/LRT, Sky risk capital,
-fixed-maturity reinsurance credit, private credit, and a governance-token
-wrapper. The snapshot target deploys $100M across all ten markets: $48.25M cbBTC,
-$19.25M WBTC, $9.25M PT-reUSD, $6.50M across two wstETH markets, $5.00M each
-in AA_FalconXUSDC and dCOMP, $4.25M stUSDS, $1.50M weETH, and $1.00M WETH.
-The portfolio has no idle USDC and $82.2M of stressed-withdrawable market
-liquidity.
+I propose a hybrid universe of ten exact Morpho markets spanning BTC,
+ETH/LST/LRT, Sky risk capital, fixed-maturity reinsurance credit, private
+credit, and a governance-token wrapper.
 
-The projected 14-day whole-vault native APR is 2.56% under zero borrower
-response. The main constraint is capacity, since adding $100M pushes the principal
-markets below their starting utilization, reducing the immediate supplier rate
-and the subsequent AdaptiveCurveIRM path. In historical replay, the constrained
-strategy remains close to a matched static allocation and materially
-outperforms a high-turnover spot-APY ranking rule.
+- **Allocation:** deploy all $100M, led by $48.25M in cbBTC and $19.25M in
+  WBTC, with the remaining $32.5M diversified across eight capped positions.
+- **Projected return:** 2.56% native APR over 14 days, assuming borrowing does
+  not respond to our deposit.
+- **Withdrawal capacity:** existing market cash, measured before our deposit,
+  covers $82.2M of the proposed positions.
+- **Rebalancing:** recalculate hourly, but trade only after risk, drift,
+  expected-return, gas, liquidity, and turnover checks.
 
-## 1. Discovery and eligibility
+The central constraint is scale. Adding $100M lowers utilization and therefore
+the supplier rate in the principal markets. In historical replay, this approach
+earned close to leaving the initial allocation alone and materially more than
+chasing the highest displayed APY. I do not interpret that result as evidence
+of rebalancing alpha; it mainly shows that accounting for capacity avoids a
+costly mistake.
 
-### Market discovery
+## 1. Building the investable universe
 
-At startup, the program paginates Morpho's public GraphQL API
-for listed Ethereum mainnet markets (`chainId = 1`) whose loan asset is
-canonical USDC (`0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48`). For every
-result it retains the exact market ID, collateral, oracle and IRM addresses,
-LLTV, fee, rewards,
-supply, borrowing, unborrowed liquidity, utilization, rates, and recent APY
-history.
-
-### Scan and selection criteria
+We start with every listed Morpho market on Ethereum whose loan asset is
+canonical USDC. The API pull records the exact market ID and the fields needed
+to evaluate it: collateral, oracle, IRM, LLTV, fees, rewards, supply, borrowing,
+cash, utilization, rates, and recent APY history. Starting from the full set
+avoids choosing familiar collateral symbols first and looking for evidence
+afterward.
 
 The snapshot contains 118 collateralized USDC markets. Discovery, mechanical
 screening, preliminary desk review, and allocation are separate stages.
 
 | stage | criterion | treatment and reason |
 |---|---|---|
-| discovery | Ethereum mainnet (`chainId = 1`) | Hard scope boundary; no bridge or cross-chain risk. |
-| discovery | canonical USDC is the loan asset | Hard scope boundary; the vault supplies its existing asset without a swap or PYUSD/USDT basis exposure. |
-| discovery | listed market with non-null collateral | Hard requirement; excludes idle markets and unlisted records. |
+| discovery | Ethereum mainnet (`chainId = 1`) | Keeps the portfolio within the assignment and avoids adding bridge or cross-chain risk. |
+| discovery | canonical USDC is the loan asset | The vault can supply its existing asset without a swap or PYUSD/USDT basis exposure. |
+| discovery | listed market with non-null collateral | Excludes idle markets and unlisted records. |
 | mechanical scan | at least $1M supplied | Removes markets too small to support the operating ticket or meaningful capacity analysis. |
 | mechanical scan | at least $0.5M borrowed | Requires evidence of borrower-paid demand; zero-demand headline rates are not scalable. |
 | mechanical scan | utilization no higher than 99.5% | Removes effectively cashless markets where entry and withdrawal are already impaired. |
 | desk review | collateral, oracle, LLTV, maturity, and known incidents | Select exact IDs only after the preliminary review described below; unresolved structures and incidents remain outside the universe. |
 | capacity rank | projected native APR after a common $10M deposit | Uses the AdaptiveCurveIRM and our own dilution; spot APY is not a ranking objective. |
-| allocation | ownership, family concentration and pre-deposit cash | Size within 35% post-deposit ownership, factor caps, 50% position exit coverage, and 60% portfolio stressed-withdrawable liquidity. |
+| allocation | ownership, family concentration and pre-deposit cash | Size within 35% post-deposit ownership, factor caps, 50% position cash coverage, and 60% portfolio cash coverage. |
 
-The activity floors reduce 118 discoveries to 46 scan passes. Preliminary
-exact-ID desk review selects ten. Each lends canonical USDC and uses Morpho's
-AdaptiveCurveIRM, with zero market fees and no active rewards in the snapshot.
-The projection is therefore native borrower-paid interest after utilization
-impact.
+The two activity floors reduce 118 discoveries to 46 candidates. I then review
+the collateral, oracle, LLTV, incidents, and usable liquidity of each exact
+market ID and select ten. All ten use Morpho's AdaptiveCurveIRM. At the
+snapshot, they also have zero market fees and no active rewards, so the return
+projection is entirely borrower-paid interest after accounting for our own
+deposit.
 
-### What market and collateral features matter most?
+### Underwriting
 
-
-| feature | assessment completed for this submission | strategy use and limitation |
+| feature | how it was assessed | how it affects the decision |
 |---|---|---|
-| protocol and market configuration | Confirmed Morpho Blue, canonical USDC, and the exact market ID, oracle, IRM, LLTV, fee, and collateral fields returned by the API. | Exact-ID approval prevents a safer ticker from implicitly approving a different configuration. Morpho contract and governance risk is common to every selected market and cannot be diversified inside this mandate. |
-| collateral and redemption | Reviewed issuer and protocol documentation to identify the claim, custodian or borrower, stated redemption path, maturity, and loss-bearing role. Transparent liquid claims were preferred to gated or opaque claims. | Unresolved claims were excluded; distinct risks received family caps. Redemption behavior, complete admin controls, and legal enforceability were not independently verified. |
-| oracle path | Inspected each exact oracle address, type, and the feed or vault-conversion components returned in the snapshot. This identified routes that include wrapper basis and routes, such as the selected cbBTC market, that assume wrapper parity. | The conclusion is recorded in the selected-ID metadata. Heartbeats, deviation thresholds, historical oracle accuracy, and oracle-versus-executable-price comparisons were not tested. |
-| LLTV and liquidation depth | Fetched exact LLTV and calculated the nominal `1 − LLTV` buffer, then compared it qualitatively with collateral and oracle complexity. Lower LLTV was preferred for more complex collateral. | The exact LLTV/oracle pair informs eligibility and caps. Borrower health and liquidation-sized market depth were not reconstructed. |
-| supplied TVL and ownership | Pulled supply from the API and calculated post-deposit ownership as `allocation / (existing supply + allocation)`. More external supply is preferable because it reduces concentration and market impact. | Automated $1M supply floor and 35% ownership cap. |
-| borrowed TVL and demand | Pulled borrowing and utilization, compared the 32-hour supply and borrow changes, and replayed available historical states. Persistent borrowing is preferable to utilization caused only by supplier exits. | Automated $0.5M borrow floor. The projection holds borrowing fixed; borrower concentration and response elasticity were not estimated. |
-| withdrawal risk | Calculated pre-deposit `supply − borrow` and coverage of each proposed position without counting our deposit as its own exit liquidity. Reviewed whether the collateral or lending structure also has gated redemption. | Automated 50% position coverage and 60% portfolio stressed-withdrawable constraints; live reductions are bounded by current market cash. These are capacity limits, not guarantees that borrowers will leave cash available. |
-| utilization and IRM state | Recalculated utilization after every candidate allocation and integrated the AdaptiveCurveIRM path over 14 days. | Fully modeled input to post-impact and marginal APR; this replaces ranking by displayed APY. |
-| rates and flows | Used spot, 1-day, and 30-day API rates plus historical replay. Supply growth without borrow growth was treated as crowding. | Used for validation, reporting, and recomputation—not as a fitted return forecast. |
-| concentration | Manually mapped markets to shared BTC, ETH/LST/LRT, Sky, FalconX, re-credit, and COMP factors, and estimated the share of each market supplied by large curated vaults. | Per-market, 35% ownership, family, and aggregate non-blue caps are enforced in code. Curated-vault share is reported but not hard-gated because the enrichment is incomplete. |
-| fees, rewards, and reallocation friction | Pulled market fees and rewards and separated incentives from native interest. For reallocation, the planner checks market cash, a minimum ticket, expected gain, gas, and rolling turnover. | Fees enter projected rates and rewards have zero base weight. Routine moves require their 14-day modeled benefit to cover a placeholder $60 per withdrawal or supply leg as well as a 15 bp annual gain hurdle. Production would replace $60 with a live transaction estimate and account for adapter hops, reverts, and execution delay. |
+| protocol and configuration | Confirmed Morpho Blue, canonical USDC, and the exact market ID, oracle, IRM, LLTV, fee, and collateral returned by the API. | Eligibility is by exact ID, not ticker. Morpho contract and governance risk is common to the whole portfolio and cannot be diversified inside this mandate. |
+| collateral and redemption | Reviewed the claim, custodian or borrower, redemption path, maturity, and loss-bearing role using issuer and protocol documentation. | Exclude unresolved structures; cap distinct custody, credit, redemption, and maturity risks. Legal enforceability and complete admin controls were not independently verified. |
+| oracle path | Inspected each oracle address, type, and available feed or vault-conversion components. | Prefer routes that observe wrapper basis. Heartbeats, deviation thresholds, historical accuracy, and executable-price comparisons were not tested. |
+| LLTV and liquidation depth | Compared `1 − LLTV` with collateral and oracle complexity; preferred lower LLTV for more complex claims. | LLTV and oracle construction inform eligibility and caps. Borrower health and liquidation-sized market depth were not reconstructed. |
+| supplied TVL and ownership | Pulled supply and calculated post-deposit ownership as `allocation / (existing supply + allocation)`. | Require at least $1M supplied and cap the vault at 35% of post-deposit market supply. |
+| borrowed TVL and demand | Pulled borrowing, utilization, recent supply/borrow changes, and available historical states. | Require at least $0.5M borrowed. Hold borrowing fixed in the projection; borrower concentration and elasticity are not estimated. |
+| withdrawal risk | Calculated cash as `supply − borrow` before our deposit and reviewed any gated redemption mechanics. | Require 50% cash coverage per position and 60% across the portfolio. Live withdrawals remain bounded by actual market cash. |
+| utilization, rates, and IRM state | Recalculated utilization after each proposed deposit and integrated the AdaptiveCurveIRM path over 14 days. Compared spot, 1-day, and 30-day rates. | Rank post-impact and marginal APR rather than displayed APY. Treat supply growth without borrow growth as crowding, not durable demand. |
+| concentration | Mapped markets to shared BTC, ETH/LST/LRT, Sky, FalconX, re-credit, and COMP factors. Estimated curated-vault share where available. | Enforce market, ownership, family, and aggregate non-blue caps. Report curated-vault share without hard-gating an incomplete estimate. |
+| fees, rewards, and execution | Pulled fees and rewards separately. The rebalance planner checks cash, minimum size, expected gain, gas, and rolling turnover. | Include fees; give rewards zero base weight. Require 14-day modeled benefit to cover $60 per leg plus a 15 bp annual gain hurdle. Production would use live gas and account for adapters, reverts, and delay. |
 
-The primary allocator does not use a composite risk score or subtract a
-subjective APR premium. A comparable expected-loss estimate would require
-default probabilities, loss-given-default, oracle/depeg frequencies,
-liquidation price-impact curves, and cross-market dependence that are not
-identified by the available history. Risk is represented through exact-ID
-eligibility and exposure constraints.
+I do not compress these risks into one score or subtract an invented "risk
+premium" from APR. Doing that credibly would require default probabilities,
+loss-given-default, oracle and depeg frequencies, liquidation price-impact
+curves, and cross-market dependence that this dataset cannot identify. Instead,
+I make risk visible through exact-ID approval and explicit exposure limits.
 
-### Examples of excluded and deferred candidates
+### What I excluded or deferred
 
-Mechanical scan passage is not approval. Selected-market risks and caps are
-explained in Section 3; the examples below show what the strategy excludes or
-defers before optimization.
+Passing the scan is not approval. The examples below show where I stopped after
+underwriting, before yield optimization could influence the decision.
 
 | candidate | decision | controlling reason |
 |---|---|---|
@@ -91,11 +88,11 @@ defers before optimization.
 | sdeUSD/USDC | excluded | Realized collateral impairment, bad debt, and delisting fail the incident and redemption tests. |
 | rETH/USDC `0x0a15…` | deferred | 86% LLTV is aggressive for the smaller LST venue and available cash does not support the required ticket with the desired exit margin. |
 | LBTC/USDC `0xbf02…` | deferred | The yield-bearing BTC wrapper adds consortium, redemption, and basis risks; only $0.13M cash made the $1M ticket fail exit coverage. |
-| alternate IDs for approved symbols | not automatically eligible | A symbol match does not validate a market's oracle, LLTV, IRM, fee, or liquidity. Only the exact IDs in Section 3 were selected. |
+| alternate IDs for selected symbols | not automatically eligible | A symbol match does not validate a market's oracle, LLTV, IRM, fee, or liquidity. Only the exact IDs in Section 3 were selected. |
 
-## 2. Allocation methodology
+## 2. Allocating $100M
 
-### Lower stable yield versus higher unstable yield
+### Stable yield versus headline yield
 
 I compare markets in four steps:
 
@@ -113,14 +110,14 @@ The cbBTC/LBTC comparison shows why this ordering matters:
 | cbBTC | 3.42% | $309.7M / $42.7M | 2.97% | Passes capacity and exit tests. |
 | LBTC | 8.13% | $1.8M / $0.13M | 0.13% | Fails the $1M ticket's exit-coverage requirement. |
 
-The base objective is to deploy the full $100M and maximize post-impact native
-Morpho interest without weakening eligibility or exposure limits. If hard
-capacity is insufficient, the residual remains idle. The snapshot has
-no active rewards. The code can include API reward APR with an explicit
-`reward_weight`, but keeps native and incentive attribution separate and uses
-zero until token liquidity, claimability, and expiry are reviewed.
+My objective is to deploy the full $100M at the highest post-impact native
+return the approved markets can support. I would rather leave a residual idle
+than weaken the eligibility or exposure limits to force deployment. There are
+no active rewards in this snapshot. If incentives appear, I would value them
+separately and only after reviewing the token's liquidity, claimability, and
+expiry; the base case gives them no credit.
 
-### Sizing across markets
+### Allocate on marginal return
 
 Adding supply lowers utilization and can reduce the APR earned by capital
 already in that market. The allocator therefore compares the change in total
@@ -143,7 +140,7 @@ market, family, ownership, and liquidity constraint. After the initial fill, it
 tests whether moving $1M can profitably open an unfunded market, then tests
 $250k moves between funded markets.
 
-### Portfolio constraints
+### Portfolio guardrails
 
 | constraint | reason | present effect |
 |---|---|---|
@@ -157,26 +154,32 @@ $250k moves between funded markets.
 | 25% non-blue collateral | Keeps at least 75% of NAV in the selected blue-chip tier. | Binds at 25.0%. |
 | 35% post-deposit ownership | Prevents the vault from becoming the majority or dominant supplier. | Non-binding; funded markets are 9–27%. |
 | 50% position exit coverage | Requires pre-existing unborrowed liquidity equal to at least half of each position. | Nearly binds PT-reUSD and sizes smaller ETH venues. |
-| 60% portfolio stressed-withdrawable | Requires vault idle plus pre-deposit market cash to cover at least 60% of NAV. | $82.2M currently. |
+| 60% portfolio cash coverage | Requires vault idle plus pre-deposit market cash to cover at least 60% of NAV. | $82.2M currently. |
 | $1M minimum ticket | Excludes positions too small to justify execution and monitoring. | Binds WETH at $1M. |
 | 100% deployment goal | Seek full use of NAV only after all hard constraints; infeasible residual stays idle. | All $100M deploys across ten markets. |
 
-These are proposed governance limits to provide a balance between max allocation, desired APR, and asset diversity.
+These are proposed governance limits, not estimated default probabilities or
+Morpho protocol constraints. They trade some projected yield for diversification
+and withdrawal capacity while still allowing full deployment in the snapshot.
 
-## 3. Selected universe and target allocation
+## 3. Proposed portfolio
 
-### Economic characteristics and target
+### Market data and target allocation
 
-The allocation inputs below are from the committed Morpho API snapshot observed
-at 2026-08-01 23:36:11 UTC. `main.py allocate` fetches a new snapshot on every
-live run; the committed state is retained to make the reported target
-reproducible.
+The allocation below uses a Morpho API snapshot observed at 2026-08-01 23:36:11
+UTC. I commit that snapshot so the result can be reproduced, but every live
+allocation run fetches current data rather than treating these numbers as
+current indefinitely.
 
-`Unborrowed liquidity` is `supplied USDC − borrowed USDC`: USDC currently held
-in the Morpho market and available collectively to suppliers who withdraw.
-`Exit coverage` is `min(our target, pre-deposit unborrowed liquidity) / our
-target`. `Cash ratio` is unborrowed liquidity divided by market supply. All
-selected markets use the AdaptiveCurveIRM, whose utilization target is 90%.
+The tables use three liquidity measures:
+
+- **Unborrowed liquidity:** supplied USDC minus borrowed USDC—the cash currently
+  available to all suppliers.
+- **Cash ratio:** unborrowed liquidity divided by total market supply.
+- **Exit coverage:** the share of our target covered by cash that existed before
+  our deposit. Our deposit is not counted as its own exit liquidity.
+
+All selected markets use the AdaptiveCurveIRM with a 90% target utilization.
 
 The selected markets balance capacity for a large supply addition, persistent
 borrower demand, post-allocation yield, withdrawal liquidity, and distinct risk
@@ -223,66 +226,74 @@ distinguish the exact markets in this memo.
 ### Market-by-market selection rationale and risk
 
 **cbBTC/USDC — BTC core.** [cbBTC](https://help.coinbase.com/en-gb/coinbase/trading-and-funding/sending-or-receiving-cryptocurrency/coinbase-wrapped-btc)
-is a Coinbase-custodied BTC claim. Its $267.0M borrowing and $42.7M cash provide
-the strongest selected-market capacity. The direct BTC/USD oracle does not observe a
-cbBTC/BTC discount; the 86% LLTV, custody, redemption, and BTC liquidation risks
-therefore remain subject to market and BTC-family caps.
+is a Coinbase-custodied BTC claim. **Why included:** $267.0M borrowed and $42.7M
+cash provide the strongest capacity in the selected set. **Principal risks:**
+the direct BTC/USD oracle does not observe a cbBTC/BTC discount, while the 86%
+LLTV leaves custody, redemption, and BTC-liquidation exposure. The market and
+BTC-family caps limit those risks.
 
 **WBTC/USDC — BTC core.** [WBTC](https://docs.wbtc.network/) is a custodial,
-tokenized-BTC claim with a different custody system from cbBTC. Its $106.9M
-borrowing and $16.9M cash support a second core position. The oracle observes
-WBTC/BTC basis through a composed route, but adds feed dependencies. Its 86%
-LLTV and common BTC liquidation exposure remain inside the BTC-family cap.
+tokenized-BTC claim with a different custody system from cbBTC. **Why included:**
+$106.9M borrowed and $16.9M cash support a second large position, and the oracle
+observes WBTC/BTC basis. **Principal risks:** the composed oracle adds feed
+dependencies, and the 86% LLTV retains the same BTC liquidation factor as
+cbBTC. Both positions share the BTC-family cap.
 
 **wstETH/USDC (`0xb323…`) — primary LST market.** [wstETH](https://docs.lido.fi/contracts/wsteth/)
 is the non-rebasing wrapper of Lido stETH, a claim on pooled staked ETH and
-rewards. It is the largest selected non-BTC venue with $20.3M borrowed. Its 86%
-LLTV and wstETH/stETH × ETH/USD route leave Lido governance, validator,
-withdrawal, basis, and liquidation-liquidity risks under the ETH-family cap.
+rewards. **Why included:** it is the largest selected non-BTC venue, with
+$20.3M borrowed. **Principal risks:** the 86% LLTV and wstETH/stETH × ETH/USD
+route retain Lido governance, validator, withdrawal, basis, and liquidation
+risks. The ETH-family cap aggregates these exposures.
 
 **stUSDS/USDC — Sky risk-capital token.** [Sky describes stUSDS](https://developers.skyeco.com/protocol/tokens/stusds/)
 as an ERC-4626 risk-capital token funding SKY-backed borrowing, not the sUSDS
-savings token. Its $14.3M borrowing and $4.4M cash provide capacity, while
-borrower/system loss, governance, conversion, redemption, and USDS-basis risks
-justify the 5% Sky cap and aggregate non-blue limit.
+savings token. **Why included:** $14.3M borrowed and $4.4M cash provide useful
+non-BTC capacity. **Principal risks:** borrower or system losses, governance,
+conversion, redemption, and USDS basis. The 5% Sky cap and aggregate non-blue
+limit control the position.
 
 **wstETH/USDC (`0x7e58…`) — secondary LST market.** The collateral claim is the
-same as the primary market, but the oracle contract and cash pool differ. Its
-$7.8M borrowing supports a minimum ticket and adds venue capacity, not
-independent asset risk; both wstETH positions share the ETH-family cap.
+same as in the primary market, but the oracle and cash pool differ. **Why
+included:** $7.8M borrowed supports a second venue and a minimum ticket.
+**Principal risk:** this adds market capacity, not independent collateral
+diversification, so both wstETH positions share the ETH-family cap.
 
 **weETH/USDC — LRT market.** [weETH](https://help.ether.fi/en/articles/595737-weeth)
-is ether.fi's liquid-restaking token. The selected 77% LLTV is preferable to
-the reviewed 86% alternative because restaking, accounting, redemption, and
-weETH/ETH basis risks exceed those of WETH. Its $6.1M borrowing adds a small ETH
-venue, while $0.9M cash and the non-blue cap limit size.
+is ether.fi's liquid-restaking token. **Why included:** $6.1M borrowed adds a
+small ETH venue, and the selected 77% LLTV is preferable to the reviewed 86%
+alternative. **Principal risks:** restaking, accounting, redemption, and
+weETH/ETH basis. Only $0.9M cash and the non-blue cap keep the position small.
 
 **PT-reUSD/USDC — fixed-maturity reinsurance claim.** A [Pendle PT](https://docs.pendle.finance/pendle-v2/ProtocolMechanics/YieldTokenization/PT)
 is redeemable for its accounting asset at maturity; this contract expires 10
 December 2026. [reUSD](https://docs.re.xyz/protocol/how-the-re-protocol-works)
-is a reinsurance-capital claim senior to a separate first-loss layer. Strong
-borrowing supports the highest selected post-impact APR, but the 91.5% LLTV,
-NAV, redemption, PT-liquidity, and roll risks require a 10% family cap and 50%
-exit coverage.
+is a reinsurance-capital claim senior to a separate first-loss layer. **Why
+included:** strong borrowing produces the highest selected post-impact APR.
+**Principal risks:** 91.5% LLTV, NAV accuracy, redemption, PT liquidity, and the
+required pre-maturity roll. A 10% family cap and 50% exit coverage limit it.
 
 **AA_FalconXUSDC/USDC — private-credit vault LP token.** The collateral address
 is [Pareto's listed FalconX Credit Vault LP token](https://docs.pareto.credit/developers/addresses/product/credit-vaults).
 [Pareto's Credit Vault design](https://docs.pareto.credit/product) sends
 deposited assets to a whitelisted borrower and processes exits through lending
-cycles. Its $44.3M borrower demand and cash support a position, but `AA_` is not
-treated as a rating. FalconX default, NAV, legal-enforcement, and delayed-exit
-risks remain despite the 77% LLTV, so the 5% single-counterparty cap binds.
+cycles. **Why included:** $44.3M of borrower demand and available cash support a
+position. `AA_` is not treated as a rating. **Principal risks:** FalconX default,
+NAV, legal enforcement, and delayed exits remain despite the 77% LLTV. The 5%
+single-counterparty cap binds.
 
 **dCOMP/USDC — enhanced governance-token satellite.** [Api3 describes dCOMP](https://docs.api3.org/curation/)
 as an ownable one-for-one COMP wrapper with configurable delegation and deposit
-permissions. Its $10.8M borrowing and 62.5% LLTV offer yield with a larger
-nominal liquidation buffer, but COMP volatility, wrapper administration,
-oracle, and liquidation-depth risks require a 5% COMP cap.
+permissions. **Why included:** $10.8M borrowed supports yield, while the 62.5%
+LLTV provides a larger nominal liquidation buffer. **Principal risks:** COMP
+volatility, wrapper administration, oracle design, and liquidation depth. The
+5% COMP cap binds.
 
 **WETH/USDC — funded ETH market.** WETH is the canonical ERC-20
 wrapper of ETH, with a direct ETH/USD oracle and no staking or custody wrapper.
-Only $3.8M borrowing and $0.6M cash limit capacity; the $1M position contributes
-to full deployment while remaining inside the ETH cap.
+**Why included:** it adds plain-ETH exposure and helps complete deployment.
+**Principal risk:** only $3.8M borrowed and $0.6M cash support a $1M position,
+so capacity—not collateral quality—is the binding concern.
 
 ### Why the $100M projected APR is ~ 2.56%
 
@@ -309,76 +320,59 @@ collateral and oracle exclusions, so it is a capacity ceiling rather than a
 candidate portfolio. Reaching prime rates at this size requires more borrower
 demand, durable incentives, or additional screened market capacity.
 
-## 4. Monitoring and rebalancing
+## 4. Vault rebalancing
 
-### Response to a material market change
+I would recalculate the portfolio every hour, but I would not trade every time
+rates move. The live positions are compared with a fresh target, and only a
+meaningful difference becomes a proposed trade. When calculating that target,
+I first remove our positions from reported market supply so the same capital is
+not counted twice. In the implementation, `allocate` produces the target and
+`rebalance` proposes.
 
-`allocate` calculates a desired state. `rebalance` additionally accepts current
-positions, fetches live state by default, removes our supply from the indexed
-market totals, recomputes the target, and emits proposed moves. It does not
-submit transactions. The same planner drives the historical strategy.
+At each hourly or event-driven refresh, I ask three questions in order:
 
-The planner first exits a manually disabled, mechanically ineligible, or
-T−30 PT market, limited by cash currently withdrawable from that market. It
-then withdraws enough to restore market, ownership, family, non-blue, and
-portfolio-liquidity constraints. These defensive reductions bypass economic
-gates. If the current book is compliant, it considers target-directed moves
-subject to the routine execution gates below.
+1. **Has a market become unacceptable?** An oracle, collateral, bad-debt,
+   legal, or maturity signal sets its target to zero. I withdraw whatever USDC
+   is available and report any balance that cannot yet exit.
+2. **Are we outside a portfolio limit?** If a position breaches a market,
+   ownership, family, non-blue, or liquidity cap, I reduce it toward compliance.
+3. **Is an ordinary yield move worth making?** I rotate from an overweight
+   market to an underweight one only when the move passes the tests below.
 
-| failure mode or signal | response |
-|---|---|
-| API/indexer is stale or disagrees with RPC state | Fail closed for new supply; retain the last verified target and reconcile against chain state. |
-| External supply rises without matching borrow growth | Recompute the rate curve and target; trade only if the economic gates pass. |
-| Market cash or portfolio stressed-withdrawable liquidity breaches its floor | Stop additions and deallocate available USDC without waiting for the yield gate. |
-| Oracle heartbeat/deviation, collateral redemption, NAV, or bad-debt incident | Disable new supply, set target to zero, and record any liquidity-constrained residual. |
-| PT enters the T−60 review or T−30 exit window | Approve a successor through governance, then target the old market to zero and roll only withdrawable cash. |
-| Execution reverts, gas spikes, or quoted cash disappears | Do not assume the move occurred; refresh state and recompute before retrying. |
+Only the third case is subject to the churn controls. After any execution, I
+read positions and market cash again rather than assume that every proposed
+transaction settled.
 
-The code derives activity, maturity, rate, concentration, and liquidity signals
-from its inputs. Oracle, redemption, NAV, bad-debt, and legal incidents require
-an external monitor or curator decision; `--disable-market` passes that decision
-to the planner. An API failure stops the live command rather than silently using
-the committed snapshot.
+| routine rule | setting | rationale |
+|---|---:|---|
+| target drift and minimum move | $1M on both sides | Matches the 1% minimum position size. A $3M threshold left cash idle when the desired deposits were split across several smaller changes. |
+| expected improvement | at least 15 bp annualized | Filters small differences in modeled rates; it was non-binding between 0 and 30 bp in the tested periods. |
+| transaction-cost test | 14-day benefit must cover $60 per leg | Uses the same horizon as the rate projection. Production would replace $60 with live gas and execution estimates. |
+| rolling turnover | $10M of gross flows per 7 days | A $5M market-to-market move counts as $10M: one withdrawal and one deposit. A $20M limit did not materially improve the tested returns. |
 
-### Response when a market becomes crowded
+I treat the first $100M deployment differently from a rebalance: there is no
+existing portfolio to churn, so the turnover limit does not apply. After
+launch, I also separate risk trades from yield trades. If an oracle breaks or a
+position breaches its cap, I withdraw as much as market cash permits even when
+the move fails the return or gas hurdle. Those tests exist to prevent noisy
+yield chasing, not to delay risk reduction.
 
-External supply inflows reduce utilization unless matched by borrow growth.
-They can also increase competition for withdrawals. The strategy therefore:
+For example, suppose third-party supply enters the FalconX market while
+borrowing is unchanged. Its utilization and post-impact APR fall. If the new
+target reduces our position from $5M to $3M and another market offers at least
+15 bp more on the moved capital, the planner can propose the $2M rotation after
+checking gas, available cash, and weekly turnover. If the advantage is only 5
+bp, I leave the position alone. This is how the strategy reacts to crowding
+without chasing every change in displayed APY.
 
-- recompute post-deposit and marginal APR after external supply inflows;
-- stop new allocation when another market offers better marginal revenue;
-- reduce the target only when the gain survives execution gates; and
-- continue enforcing ownership and exit-liquidity limits despite a high spot
-  APY.
+I would refresh market data every 5–15 minutes and monitor urgent risk signals
+at block level. The portfolio target updates hourly or immediately after a
+material event, while collateral eligibility and risk caps receive a weekly
+human review. An oracle, redemption, NAV, bad-debt, or legal alert can override
+the yield model and disable a market. If the API is unavailable, the live run
+stops rather than silently falling back to the committed snapshot.
 
-### Guardrails against excessive churn
-
-I would monitor safety-critical state every block or few minutes and recalculate
-the target hourly. Recalculation does not automatically cause a trade. Collateral
-eligibility and risk caps receive a separate weekly human review.
-
-For an ordinary yield reallocation, both the source's excess and the
-destination's shortfall must exceed $1M, or 1% of NAV. This matches the minimum
-position size. A $3M threshold sometimes left cash idle because the desired
-deposits were divided into several changes smaller than $3M. Reducing the
-threshold to $1M increased average deployment by 0.5–4.1 percentage points
-across the three tests, while changing total trading by only −$1M to +$4M.
-The move must also improve
-projected annual return on moved capital by at least 15 bp and cover transaction
-cost over the 14-day rate horizon. The 15 bp threshold is an untuned noise
-buffer. It was non-binding from 0–30 bp in the tested tapes. I use $60 per
-withdrawal or supply leg, while a live system would use current gas.
-
-Routine turnover is limited to $10M of gross flows in any seven days. Because a
-market-to-market reallocation has a withdrawal and a supply leg, moving $5M uses
-the full $10M allowance. Raising the cap to $20M did not materially improve
-return in the three tested tapes, so I retain the more conservative setting.
-Initial vault construction is not a rotation and follows the full feasible
-target outside this rolling limit.
-A disabled market or hard-limit breach is different: reduce it immediately as
-far as available cash permits, without applying the yield or turnover tests.
-
-## 5. Proposed Morpho vault configuration
+## 5. My Morpho Vault Configuration
 
 | parameter | proposed setting |
 |---|---|
@@ -398,7 +392,7 @@ market through the timelock. Review it by T−60, target the old market to zero 
 T−30, and withdraw only as market cash becomes available; collateral maturity
 does not itself repay USDC suppliers.
 
-## 6. Historical validation
+## 6. What the historical replay says
 
 All returns use the full $100M NAV denominator; idle earns 0%.
 
@@ -413,17 +407,18 @@ All returns use the full $100M NAV denominator; idle earns 0%.
 vault-level events. The selected markets recorded no bad debt during the
 October cascade week. Liquidation volume is not supplier revenue.
 
-The active book trails static in all four windows after enforcing live-style
-constraint repair and execution gates, but it materially outperforms the
-spot-APY rule with far less turnover. The result does not establish rebalancing
-alpha; it tests whether the operating policy behaves coherently across a
-liquidation event and quieter tapes.
+The active strategy trails the static portfolio in all four windows, but it
+materially outperforms the rule that simply chases the highest spot APY and does
+so with far less turnover. That is a useful but modest result: the policy
+behaved sensibly through both the October liquidation cascade and quieter
+periods, but the test does not show that frequent rebalancing adds alpha.
+
 Competitor attribution would require matched NAV, dates, flows, fees, and risk
 constraints. Historical universes are point-in-time: only four of the current
 ten IDs existed on 10 October 2025, so that replay tests the allocation rule,
 not today's ten-market composition.
 
-## 7. Limitations
+## 7. What this analysis does not prove
 
 - The counterfactual vault changes within-period utilization but does not alter
   the next external historical observation; borrower and competing-supplier
