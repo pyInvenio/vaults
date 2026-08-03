@@ -122,8 +122,7 @@ def initialize(db: sqlite3.Connection) -> None:
         ) WITHOUT ROWID;
         """
     )
-    # Additive migration for databases created by the first downloader
-    # version.  Historical observations remain untouched.
+    # Additive migration for earlier databases.
     market_columns = {
         row[1] for row in db.execute("PRAGMA table_info(markets)").fetchall()
     }

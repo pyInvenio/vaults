@@ -1,45 +1,7 @@
-"""Exact model of Morpho Blue's AdaptiveCurveIRM, plus forward projections.
+"""Morpho AdaptiveCurveIRM math and post-deposit rate projections.
 
-Why this module exists
-----------------------
-A $100M vault is large relative to most Morpho markets. Depositing into a
-market mechanically lowers its utilization, which (a) immediately moves the
-rate down the curve and (b) makes the IRM's adaptive mechanism *compress the
-whole curve* over the following days. Spot APY is therefore a biased
-estimator of what we will actually earn. Every allocation decision in this
-repo is made on *projected post-impact* rates computed here, never on spot.
-
-Contract semantics (AdaptiveCurveIrm.sol, morpho-org/morpho-blue-irm)
----------------------------------------------------------------------
-Constants (WAD-scaled on-chain, plain floats here):
-
-  TARGET_UTILIZATION      = 0.9
-  CURVE_STEEPNESS         = 4          (rate at u=1 is 4x rateAtTarget,
-                                        rate at u=0 is rateAtTarget/4)
-  ADJUSTMENT_SPEED        = 50 / year  (exponential drift of rateAtTarget)
-  INITIAL_RATE_AT_TARGET  = 4% / year
-  MIN_RATE_AT_TARGET      = 0.1% / year
-  MAX_RATE_AT_TARGET      = 200% / year
-
-Definitions:
-
-  u          = borrow / supply
-  err(u)     = (u - 0.9) / (1 - 0.9)   if u >= 0.9    (in [0, 1])
-             = (u - 0.9) / 0.9         if u <  0.9    (in [-1, 0])
-  curve(r,e) = r * (1 + (C - 1) * e)   if e >= 0
-             = r * (1 + (1 - 1/C) * e) if e <  0
-  borrow r.  = curve(rateAtTarget, err(u))
-  rateAtTarget'(t) = ADJUSTMENT_SPEED * err(u) * rateAtTarget(t)
-     => over dt at constant err: r_T(t+dt) = r_T(t) * exp(50 * err * dt_years)
-
-  supply rate = borrow rate * u * (1 - fee)
-
-Intuition for the adaptation speed: at err = -0.5 (u = 45%), rateAtTarget
-halves roughly every 5 days (ln 2 / (50 * 0.5) years). Crowding a market
-does not just slide down a static curve - it melts the curve itself.
-
-Rates here are continuously-compounded APRs; the Morpho API reports
-compounded APYs. Convert at the edges with apy_to_apr / apr_to_apy.
+Deposits reduce utilization immediately and change ``rateAtTarget`` over time.
+Internal rates are continuously compounded APRs; API rates are APYs.
 """
 
 from __future__ import annotations
@@ -90,11 +52,7 @@ def supply_rate(rate_at_target: float, u: float, fee: float = 0.0) -> float:
 
 
 def implied_rate_at_target(borrow_apr: float, u: float) -> float:
-    """Invert the curve: recover rateAtTarget from an observed borrow APR.
-
-    Used when the API doesn't hand us rateAtTarget directly. Clamped to the
-    contract's bounds.
-    """
+    """Recover a bounded rateAtTarget from borrow APR and utilization."""
     e = err(u)
     if e >= 0:
         coeff = 1.0 + (CURVE_STEEPNESS - 1.0) * e
@@ -129,14 +87,7 @@ def interval_borrow_rate(
 def rate_at_target_from(
     borrow_apy: float, utilization: float, rate_at_target: "float | None" = None
 ) -> float:
-    """Return a rateAtTarget consistent with the indexed market state.
-
-    Prefer the API/contract field when it reproduces the observed borrow APR.
-    Indexers can sample ``rateAtTarget``, utilization and displayed APY at
-    slightly different blocks, so fall back to exact inversion when the
-    resulting borrow-rate discrepancy exceeds 0.05 bp.  This is calibration
-    to the same observed state, not an assumption about borrower response.
-    """
+    """Use the indexed anchor unless nearby-block skew exceeds 0.05 bp."""
     observed_borrow_apr = apy_to_apr(borrow_apy)
     if rate_at_target is not None:
         modeled_borrow_apr = borrow_rate(rate_at_target, utilization)
@@ -146,24 +97,17 @@ def rate_at_target_from(
 
 
 def relax(current: float, target: float, dt_days: float, tau_days: float) -> float:
-    """One step of exponential relaxation toward `target` with time constant
-    `tau_days` - the shared model for lagged borrower/supplier responses."""
+    """Relax ``current`` toward ``target`` with time constant ``tau_days``."""
     k = 1.0 - math.exp(-dt_days / max(tau_days, 1e-6))
     return current + (target - current) * k
 
 
 @dataclass
 class MarketSim:
-    """Single-market forward simulator.
+    """Forward-simulate IRM adaptation and optional borrower response.
 
-    State: total supply S, total borrow B, rateAtTarget. Borrow demand is
-    modeled with a constant-elasticity schedule anchored at the observed
-    (B0, r0): B*(r) = B0 * (r / r0)^(-elasticity), and B relaxes toward
-    B*(r) with time constant `demand_lag_days`. This is deliberately simple;
-    its only job is to capture the two first-order forces after we deposit:
-    the curve compressing (IRM adaptation) and borrowers stepping in at
-    cheaper rates (demand response). Elasticity 0 = worst case (no borrower
-    response, all rate impact is permanent until the IRM re-equilibrates).
+    Demand follows a constant-elasticity curve anchored to observed borrow and
+    rate. Zero elasticity holds borrower principal demand fixed.
     """
 
     supply: float
@@ -172,10 +116,7 @@ class MarketSim:
     fee: float = 0.0
     demand_elasticity: float = 0.0
     demand_lag_days: float = 5.0
-    # demand anchor: (borrow, borrow-rate) pair the elasticity schedule pivots
-    # around. Defaults to the state at construction; pass the *pre-shock*
-    # observed pair when simulating a deposit, so the schedule reflects
-    # actual revealed demand.
+    # Pre-deposit demand anchor.
     b_anchor: float = None  # type: ignore[assignment]
     r_anchor: float = None  # type: ignore[assignment]
 
@@ -205,9 +146,7 @@ class MarketSim:
             self.rate_at_target, u, dt_years
         )
 
-        # Morpho debt compounds at the interval-average borrow rate. Market
-        # total supply assets receive the full interest; fee-share minting
-        # dilutes existing suppliers, represented in their interval return.
+        # Fee-share minting dilutes suppliers' claim on accrued interest.
         interest = self.borrow * math.expm1(avg_borrow_apr * dt_years)
         supplier_return = (
             interest * (1.0 - self.fee) / self.supply if self.supply > 0 else 0.0
@@ -216,13 +155,12 @@ class MarketSim:
         self.supply += interest
         self.rate_at_target = end_rate_at_target
 
-        # borrow demand relaxes toward its schedule
         if self.demand_elasticity > 0 and self.r_anchor > 0:
             r_b = borrow_rate(self.rate_at_target, self.utilization)
             target_b = self.b_anchor * (max(r_b, 1e-6) / self.r_anchor) ** (
                 -self.demand_elasticity
             )
-            target_b = min(target_b, 0.999 * self.supply)  # cannot exceed liquidity
+            target_b = min(target_b, 0.999 * self.supply)
             self.borrow = relax(self.borrow, target_b, dt_days, self.demand_lag_days)
         return supplier_return
 
@@ -248,16 +186,7 @@ def projected_supply_apr(
     demand_elasticity: float = 0.0,
     demand_lag_days: float = 5.0,
 ) -> float:
-    """Average supply APR we'd earn over `horizon_days` after depositing
-    `extra_supply` (can be negative for withdrawals) into the market.
-
-    This is the quantity the allocator optimizes. It prices in:
-      1. the immediate slide down the rate curve (utilization dilution),
-      2. the IRM compressing/expanding rateAtTarget over the horizon,
-      3. optional borrower response only when an experimental caller supplies
-         a non-zero elasticity. The primary allocator uses the zero default.
-    """
-    # anchor demand at the *observed* pre-shock (borrow, rate) pair
+    """Project supply APR after a deposit or withdrawal over the horizon."""
     u0 = borrow / supply if supply > 0 else 0.0
     r0 = max(borrow_rate(rate_at_target, u0), 1e-6)
     new_supply = max(supply + extra_supply, 1.0)

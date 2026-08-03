@@ -43,15 +43,7 @@ class RebalancePlan:
 def external_market_view(
     markets: list[Market], positions: Mapping[str, float]
 ) -> list[Market]:
-    """Remove our supply from indexed totals before recomputing a target.
-
-    Morpho's API reports aggregate supply including the vault. The allocator
-    expects market supply before the proposed vault allocation, so leaving our
-    position in place would count it twice. Borrowing remains fixed. If current
-    debt exceeds reconstructed external supply, the target can still be below
-    the immediately withdrawable position; execution is separately bounded by
-    observed market cash.
-    """
+    """Remove our positions from indexed supply before recomputing the target."""
 
     view: list[Market] = []
     for market in markets:

@@ -21,9 +21,7 @@ def prepare(
 ) -> list[str]:
     start = timestamp(start_date)
     end = start + days * DAY_SECONDS
-    # Bootstrap a fresh database before point-in-time selection. This makes
-    # `prepare_backtest` sufficient on its own rather than silently assuming a
-    # pre-existing daily cache.
+    # Bootstrap the daily states needed for point-in-time selection.
     pull(
         database=database,
         start=start,

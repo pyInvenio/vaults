@@ -1,24 +1,4 @@
-"""Curator-assigned metadata: the judgment layer.
-
-The API tells us numbers; it does not tell us whether a collateral is
-trustworthy. That call is made here, explicitly, in a file designed to be
-reviewed line-by-line. Keys are matched first on market uniqueKey (for
-market-specific overrides, e.g. a specific PT maturity), then on collateral
-symbol.
-
-Tier policy (see docs/MEMO.md for full reasoning):
-  BLUE_CHIP      deeply liquid, years of liquidation history, robust oracles
-  YIELD_STABLE   stable-denominated yield/risk claims: exact structure,
-                 redemption and loss-bearing role require separate review
-  PT_FIXED       Pendle PTs: fixed maturity (converges to par), but oracle
-                 complexity + forced roll at expiry
-  LST_LRT_MINOR  smaller LST/LRTs: thinner exit liquidity, more depeg beta
-  RWA            off-chain redemption cycle; on-chain liquidity ~nil
-  PRIVATE_CREDIT permissioned counterparty/tranche risk and delayed redemption
-  GOVERNANCE_TOKEN volatile protocol-token collateral or wrapper; liquidation
-                 depth and administrative controls require conservative sizing
-  EXOTIC         everything unassessed -> excluded by hard filter
-"""
+"""Curator-assigned collateral, oracle, and maturity metadata."""
 
 from __future__ import annotations
 
@@ -38,7 +18,7 @@ class MarketMeta:
 
 
 METADATA: dict = {
-    # ---------- exact reviewed market overrides ----------
+    # Exact market overrides
     "0x64d65c9a2d91c36d56fbc42d69e979335320169b3df63bf92789e2c8883fcc64": MarketMeta(
         CollateralTier.BLUE_CHIP,
         oracle_note="ChainlinkOracleV2 0xA6D6…; direct BTC/USD feed",
@@ -94,8 +74,7 @@ METADATA: dict = {
     "0x1e9d614631a7df0ec07fb05b2c8cb2491575fd1a63a33bf187a6afb295a4fc64": MarketMeta(
         CollateralTier.PT_FIXED,
         oracle_note="Pendle PT route over reUSD; maturity convergence plus underlying NAV pricing",
-        # Verified from expiry() on PT contract 0xeCfa…3957, not inferred
-        # solely from the ticker: 0x6b19eb80 = 2026-12-10 00:00 UTC.
+        # Verified from the PT contract's expiry().
         pt_maturity_timestamp=1796860800,
         notes="10-Dec-2026 maturity; 91.5% LLTV and reinsurance-credit/redemption "
         "risk require a small family cap and pre-maturity exit plan",
@@ -108,7 +87,7 @@ METADATA: dict = {
         "COMP volatility, wrapper administration and liquidation depth "
         "require a separate 5% family cap",
     ),
-    # ---------- blue chip ----------
+    # Blue-chip collateral
     "wstETH": MarketMeta(
         CollateralTier.BLUE_CHIP,
         oracle_note="Lido exchange rate composed with ETH/USD Chainlink; deep DEX+withdrawal exit",
@@ -130,7 +109,7 @@ METADATA: dict = {
         notes="fine collateral, but mainnet WETH/USDC borrow demand is thin - "
         "ETH borrowing happens against LSTs instead",
     ),
-    # ---------- yield-bearing stables ----------
+    # Yield-bearing stable collateral
     "sUSDe": MarketMeta(
         CollateralTier.YIELD_STABLE,
         oracle_note="typically hardcoded/exchange-rate pricing - liquidations lag a true depeg",
@@ -153,7 +132,7 @@ METADATA: dict = {
         "vault conversion, redemption and loss-absorption risk",
     ),
     "sDAI": MarketMeta(CollateralTier.YIELD_STABLE, oracle_note="DSR accrual oracle"),
-    # ---------- Pendle PTs (override with uniqueKey entries to set maturity) ----------
+    # Pendle PTs
     "PT-sUSDe": MarketMeta(
         CollateralTier.PT_FIXED,
         oracle_note="Pendle PT oracle (TWAP of implied yield) -> converges to par at maturity",
@@ -162,7 +141,7 @@ METADATA: dict = {
     "PT-USDe": MarketMeta(
         CollateralTier.PT_FIXED, oracle_note="Pendle PT oracle; converges to par"
     ),
-    # ---------- minor LST/LRT ----------
+    # Smaller LST/LRT collateral
     "weETH": MarketMeta(
         CollateralTier.LST_LRT_MINOR,
         oracle_note="ether.fi exchange rate x ETH/USD",
@@ -179,13 +158,13 @@ METADATA: dict = {
         oracle_note="BTC/USD feed + LBTC/BTC ratio; Lombard consortium security model",
         notes="yield-bearing BTC wrapper, younger than WBTC/cbBTC; sized as minor tier",
     ),
-    # ---------- RWA ----------
+    # RWA collateral
     "wbIB01": MarketMeta(
         CollateralTier.RWA,
         oracle_note="NAV oracle; T-bill ETF wrapper (Backed)",
         notes="asset quality high, on-chain exit liquidity ~nil; sized accordingly",
     ),
-    # ---------- explicitly reviewed and EXCLUDED ----------
+    # Explicit exclusions
     "mF-ONE": MarketMeta(
         CollateralTier.EXOTIC,
         oracle_note="Midas NAV oracle for Fasanara private-credit fund",
@@ -206,14 +185,11 @@ METADATA: dict = {
         CollateralTier.EXOTIC,
         notes="EXCLUDED: Elixir collapse Nov-2025, realized bad debt, delisted",
     ),
-    # everything unassessed stays EXOTIC by default
 }
 
 
 def lookup(unique_key: str, symbol: str) -> MarketMeta:
-    """uniqueKey match first, exact symbol, then longest prefix match (so
-    'PT-sUSDe-25SEP2026' inherits the 'PT-sUSDe' entry). PT maturities are
-    market-specific: set them via uniqueKey entries or MATURITIES below."""
+    """Match market ID, exact symbol, then the longest symbol prefix."""
     if unique_key in METADATA:
         return METADATA[unique_key]
     if symbol in METADATA:
@@ -230,8 +206,7 @@ def lookup(unique_key: str, symbol: str) -> MarketMeta:
     return meta
 
 
-# Days to maturity per PT vintage, relative to the snapshot date (2026-07-30).
-# In production this comes from Pendle metadata / the market's oracle config.
+# Snapshot-relative fallback for PTs without exact-market metadata.
 PT_MATURITY_DAYS = {
     "PT-sUSDe-25SEP2026": 57.0,
     "PT-USDe-26NOV2026": 119.0,

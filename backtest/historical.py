@@ -293,9 +293,7 @@ class HistoryStore:
                 quarterly=row["quarterly_apy"],
             ),
             tier=CollateralTier[row["tier"]],
-            # Every row in a live-approved pull passed the repository's human
-            # collateral review.  Today's API `listed` flag is not a valid
-            # proxy for whether a market was listed on a historical date.
+            # Today's listed flag is not historical eligibility evidence.
             whitelisted=True,
             oracle_note=row["oracle_note"],
             pt_maturity_days=row["pt_maturity_days"],
@@ -366,7 +364,6 @@ def _historical_market(market: Market) -> HistoricalMarket:
         fee=0.0,
     )
 
-    # Use the same fee inference path as all subsequent observations.
     class Row(dict):
         __getattr__ = dict.__getitem__
 
@@ -398,8 +395,7 @@ def _observable_snapshot(
     concentration = max(positions.values(), default=0.0) / cfg.total_usd
     liquidity_gap = (
         sum(
-            # Only cash that existed on the external tape counts. Including our
-            # own fresh deposit would make every new position appear withdrawable.
+            # Do not count our deposit as exit liquidity.
             max(sm.our_position - max(sm.supply_ext - sm.borrow, 0.0), 0.0)
             for sm in world.values()
         )
@@ -494,9 +490,7 @@ def replay_spec(
             gas += cfg.gas_cost_per_move_usd
             moves += 1
 
-        # Liquidations retain exact block/timestamp ordering even when market
-        # states are hourly or daily. Realized bad debt is allocated pro rata
-        # to our hypothetical supplier share and permanently blocks redeposit.
+        # Preserve exact event order between sampled market states.
         events = store.liquidations_between(ts, ts + spec.step_seconds, world)
         for event in events:
             liquidation_count += 1
@@ -717,10 +711,7 @@ class MorphoHistoricalBacktester(HistoricalBacktester):
                 report = universe.select(
                     store.markets_at(start), self.cfg, filters=self.filters
                 )
-                # Label the macro tape using economically meaningful markets.
-                # Tiny monitored venues can move >15% on small dollar flows and
-                # would make every window look like a crisis even when they are
-                # unfunded. They remain in the replay universe and risk logic.
+                # Exclude tiny venues only from quiet-period labeling.
                 quiet_ids = [
                     market.unique_key
                     for market in report.universe

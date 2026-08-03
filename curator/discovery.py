@@ -14,11 +14,7 @@ def shortlist(
     limit: int = 15,
     probe_usd: float | None = None,
 ) -> list[dict[str, object]]:
-    """Rank mechanical scan passes without auto-approving collateral risk.
-
-    A high post-impact rate earns a place in the diligence queue, not in the
-    vault. Human exact-ID review remains deliberately separate.
-    """
+    """Rank scan passes for diligence without granting market approval."""
     probe = probe_usd if probe_usd is not None else cfg.total_usd * 0.10
     reviewed = {item.market_id: item for item in REVIEWED_MARKETS}
     rows: list[dict[str, object]] = []

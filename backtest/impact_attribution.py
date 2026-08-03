@@ -1,10 +1,4 @@
-"""Quantify the return lost to the hypothetical $100M vault's own supply.
-
-Both rows use the same constrained allocation path on the same historical
-tape. The price-taker counterfactual credits the vault with the external
-market rate without adding its supply to utilization; the primary row adds
-the position and recomputes the IRM rate. Their difference is rate impact.
-"""
+"""Compare post-deposit rates with a price-taker counterfactual."""
 
 from __future__ import annotations
 

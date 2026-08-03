@@ -1,15 +1,4 @@
-"""Human-reviewed Ethereum USDC allocation universe.
-
-The assignment asks for a 7--10 market allocation universe. This list is
-keyed by immutable Morpho market IDs, not collateral symbols: markets with
-the same collateral can use different immutable oracles and are different
-risks. Every ID below is present in the verified Morpho API snapshot at
-``data/snapshot_2026-08-01.json``.
-
-This is not constrained to a third-party "Quality" or "Enhanced" product
-label. Inclusion means reviewed and eligible for consideration, not
-necessarily funded. Capacity, ownership, return, and risk gates still apply.
-"""
+"""Human-reviewed Ethereum USDC markets, keyed by immutable market ID."""
 
 from __future__ import annotations
 
@@ -89,8 +78,7 @@ REVIEWED_MARKETS = (
 
 REVIEWED_MARKET_IDS = frozenset(m.market_id for m in REVIEWED_MARKETS)
 
-# Mechanical scan: broad enough to surface unfamiliar collateral for review.
-# Passing this screen never auto-approves a market.
+# Scan passage does not imply approval.
 SCAN_FILTERS = {
     "allowed_market_ids": None,
     "allowed_loan_symbols": ("USDC",),
@@ -115,8 +103,7 @@ def scan_filters() -> dict:
     return dict(SCAN_FILTERS)
 
 
-# Backward-compatible names for older notebooks/tests. New code should use the
-# reviewed-universe terminology above.
+# Compatibility aliases for older notebooks and tests.
 ApprovedMarket = ReviewedMarket
 APPROVED_MARKETS = REVIEWED_MARKETS
 APPROVED_MARKET_IDS = REVIEWED_MARKET_IDS

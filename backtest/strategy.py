@@ -21,14 +21,7 @@ def _period_label(days: float) -> str:
 
 
 class ConstrainedYieldStrategy(Strategy):
-    """Size on post-impact marginal return, recomputed on a fixed cadence.
-
-    Day zero can deploy directly to the desired book.  Later routine target
-    changes are staged through a rolling seven-day turnover
-    budget and ignored when the largest market drift is inside the configured
-    band. Exact-event exits in the historical runner remain a separate,
-    immediate safety path.
-    """
+    """Replay target allocation with live-style drift and turnover gates."""
 
     def __init__(
         self,

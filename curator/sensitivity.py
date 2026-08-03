@@ -77,12 +77,7 @@ def policy_sensitivity(
 def mechanical_screen_ceiling(
     markets: list[Market], cfg: VaultConfig | None = None
 ) -> list[dict]:
-    """Optimistic capacity diagnostic, explicitly not an investable universe.
-
-    Every mechanical scan pass is temporarily treated as blue-chip collateral.
-    This isolates whether $100M market capacity can reach a return target before
-    exact collateral/oracle underwriting removes candidates.
-    """
+    """Measure capacity with every mechanical scan pass treated as blue-chip."""
     base_cfg = cfg if cfg is not None else VaultConfig()
     candidates = [
         copy.deepcopy(market)

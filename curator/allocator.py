@@ -185,8 +185,7 @@ def allocate(
 
     fill()
 
-    # Shared constraints and minimum tickets make the feasible surface
-    # non-smooth, so refine the greedy book with feasible exchanges.
+    # Refine the greedy fill across non-smooth minimum-ticket constraints.
     def swap_admissible(
         source: str,
         destination: str,
@@ -236,7 +235,6 @@ def allocate(
         adjust(source, -step)
         adjust(destination, step)
 
-    # Open new positions atomically at the minimum ticket.
     for _ in range(len(amounts)):
         best_open: tuple[str, str] | None = None
         best_open_gain = EPSILON
