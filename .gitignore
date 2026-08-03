@@ -1,0 +1,25 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+codex/data/*.sqlite3
+codex/data/*.sqlite3-shm
+codex/data/*.sqlite3-wal
+
+# Local research and interview material (not part of the submission repo).
+experimental/
+research/
+docs/IDEAS.md
+docs/EXPERIMENTAL.md
+docs/INTERVIEW_DEFENSE.md
+tests/test_experimental_risk.py
+tests/test_fleet.py
+tests/test_rebalance.py
+tests/test_regime.py
+tests/test_review_findings.py
+
+# Keep only verified, cited result artifacts.
+codex/data/*.csv
+!codex/data/verified_*.csv
+
+research/**/data/
